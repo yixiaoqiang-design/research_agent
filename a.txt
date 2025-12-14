@@ -1,0 +1,172 @@
+import axios from 'axios';
+import type { AxiosInstance, AxiosResponse } from 'axios';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+class ApiClient {
+  private client: AxiosInstance;
+
+  constructor() {   
+    this.client = axios.create({
+      baseURL: API_BASE_URL,
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+
+  // 聊天会话相关
+  async createSession(title: string = '新对话'): Promise<any> {
+    const response = await this.client.post('/api/chat/sessions', { title });
+    return response.data;
+  }
+
+  async getSessions(): Promise<any> {
+    const response = await this.client.get('/api/chat/sessions');
+    return response.data;
+  }
+
+  async getSession(sessionId: string): Promise<any> {
+    const response = await this.client.get(`/api/chat/sessions/${sessionId}`);
+    return response.data;
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.client.delete(`/api/chat/sessions/${sessionId}`);
+  }
+
+  // 消息相关
+  async sendMessage(data: {
+    session_id?: string;
+    message: string;
+    stream?: boolean;
+  }): Promise<any> {
+    const endpoint = data.stream ? '/api/chat/stream' : '/api/chat/message';
+    
+    if (data.stream) {
+      // 对于流式请求，我们使用 EventSource
+      throw new Error('Use sendStreamMessage for streaming requests');
+    }
+    
+    const response = await this.client.post(endpoint, data);
+    return response.data;
+  }
+
+  async getSessionMessages(sessionId: string): Promise<any> {
+    const response = await this.client.get(`/api/chat/sessions/${sessionId}/messages`);
+    return response.data;
+  }
+
+  // 流式响应 - 使用 EventSource
+  createStreamConnection(data: {
+    session_id?: string;
+    message: string;
+    onMessage?: (data: any) => void;
+    onError?: (error: any) => void;
+    onOpen?: () => void;
+    onClose?: () => void;
+  }): { close: () => void } {
+    const url = `${API_BASE_URL}/api/chat/stream`;
+    const requestData = {
+      session_id: data.session_id,
+      message: data.message,
+      stream: true
+    };
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    // 使用 fetch 发送 POST 请求
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestData),
+      signal,
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        if (!response.body) {
+          throw new Error('ReadableStream not supported');
+        }
+
+        if (data.onOpen) {
+          data.onOpen();
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        const readStream = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                if (data.onClose) {
+                  data.onClose();
+                }
+                break;
+              }
+
+              const chunk = decoder.decode(value);
+              const lines = chunk.split('\n\n');
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const dataLine = line.substring(6);
+                  if (dataLine === '[DONE]') {
+                    if (data.onClose) {
+                      data.onClose();
+                    }
+                    return;
+                  }
+                  
+                  try {
+                    const parsedData = JSON.parse(dataLine);
+                    if (data.onMessage) {
+                      data.onMessage(parsedData);
+                    }
+                  } catch (error) {
+                    console.error('Failed to parse SSE data:', error);
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            if (data.onError) {
+              data.onError(error);
+            }
+          }
+        };
+
+        readStream();
+      })
+      .catch(error => {
+        if (data.onError) {
+          data.onError(error);
+        }
+      });
+
+    return {
+      close: () => controller.abort()
+    };
+  }
+
+  // 直接发送流式请求（保持向后兼容）
+  async sendStreamMessage(data: {
+    session_id?: string;
+    message: string;
+  }): Promise<{ close: () => void }> {
+    return this.createStreamConnection({
+      session_id: data.session_id,
+      message: data.message,
+    });
+  }
+}
+
+export const apiClient = new ApiClient();

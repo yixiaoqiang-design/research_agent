@@ -1,0 +1,123 @@
+import axios from 'axios';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+interface StreamCallbacks {
+  onMessage?: (data: any) => void;
+  onError?: (error: any) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+}
+
+class ApiClient {
+  private client = axios.create({
+    baseURL: API_BASE_URL,
+    timeout: 30000,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  // 聊天会话相关
+  createSession = (title: string = '新对话') => 
+    this.client.post('/api/chat/sessions', { title });
+  
+  getSessions = () => 
+    this.client.get('/api/chat/sessions');
+  
+  getSession = (sessionId: string) => 
+    this.client.get(`/api/chat/sessions/${sessionId}`);
+  
+  deleteSession = (sessionId: string) => 
+    this.client.delete(`/api/chat/sessions/${sessionId}`);
+  
+  // 发送消息（非流式）
+  sendMessage = (data: { session_id?: string; message: string; }) => 
+    this.client.post('/api/chat/message', data);
+  
+  getSessionMessages = (sessionId: string) => 
+    this.client.get(`/api/chat/sessions/${sessionId}/messages`);
+  
+  // 流式连接 - 增强版
+  createStreamConnection = (data: { 
+    session_id?: string; 
+    message: string;
+  }, callbacks: StreamCallbacks = {}): { close: () => void } => {
+    const params = new URLSearchParams();
+    if (data.session_id) params.append('session_id', data.session_id);
+    params.append('message', data.message);
+    
+    const url = `${API_BASE_URL}/api/chat/stream?${params.toString()}`;
+    
+    let isClosed = false;
+    let eventSource: EventSource | null = null;
+    
+    try {
+      eventSource = new EventSource(url);
+
+      eventSource.onopen = () => {
+        console.log('SSE连接已建立');
+        callbacks.onOpen?.();
+      };
+
+      eventSource.onmessage = (event) => {
+        if (isClosed) return;
+        
+        try {
+          if (event.data.trim() === '[DONE]') {
+            console.log('SSE流式传输完成');
+            callbacks.onClose?.();
+            this._safeClose(eventSource);
+            return;
+          }
+          
+          const parsedData = JSON.parse(event.data);
+          callbacks.onMessage?.(parsedData);
+        } catch (error) {
+          console.error('Failed to parse SSE data:', error, 'Raw data:', event.data);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        if (isClosed) return;
+        
+        console.error('SSE连接错误:', error);
+        
+        // 如果连接已经关闭，不触发错误回调
+        if (eventSource?.readyState === EventSource.CLOSED) {
+          callbacks.onClose?.();
+        } else {
+          callbacks.onError?.(error);
+        }
+        
+        this._safeClose(eventSource);
+      };
+      
+    } catch (error) {
+      console.error('创建SSE连接失败:', error);
+      callbacks.onError?.(error);
+    }
+
+    return {
+      close: () => {
+        if (isClosed) return;
+        isClosed = true;
+        console.log('手动关闭SSE连接');
+        callbacks.onClose?.();
+        this._safeClose(eventSource);
+      }
+    };
+  }
+
+  private _safeClose(eventSource: EventSource | null) {
+    if (eventSource) {
+      try {
+        eventSource.close();
+      } catch (e) {
+        console.warn('关闭EventSource时发生错误:', e);
+      }
+    }
+  }
+}
+
+export const apiClient = new ApiClient();
