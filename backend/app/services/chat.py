@@ -7,6 +7,10 @@ from app.models.chat import ChatSession, ChatMessage
 from app.schemas.chat import SessionCreate, MessageCreate, ChatRequest
 from app.services.agent import agent_service
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class ChatService:
     """聊天服务"""
     
@@ -131,6 +135,7 @@ class ChatService:
     
     async def process_stream_chat(self, chat_request: ChatRequest):
         """流式处理聊天请求"""
+        logger.info("Processing stream chat request")
         session_id = chat_request.session_id
         
         # 如果没有session_id，创建新会话

@@ -88,12 +88,17 @@ async def stream_message_post(
     db: Session = Depends(get_db)
 ):
     """流式发送消息（POST方法）"""
+    print()
+    logger.info("Received streaming chat request via POST")
+    logger.info(f"ChatRequest: {chat_request}")
+    
     if not chat_request.message:
         raise HTTPException(status_code=400, detail="消息不能为空")
     
     service = ChatService(db)
     
     async def generate():
+        logger.info("Starting stream generation")
         try:
             async for chunk in service.process_stream_chat(chat_request):
                 yield f"data: {json.dumps(chunk)}\n\n"
