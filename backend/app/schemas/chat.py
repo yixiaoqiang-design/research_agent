@@ -15,7 +15,7 @@ class MessageCreate(MessageBase):
 
 # 消息响应
 class MessageResponse(MessageBase):
-    id: int
+    id: str  # 改为String类型
     session_id: str
     created_at: datetime
     
@@ -28,8 +28,7 @@ class SessionCreate(BaseModel):
 
 # 会话响应
 class SessionResponse(BaseModel):
-    id: int
-    session_id: str
+    id: str  # 改为String类型
     title: str
     created_at: datetime
     updated_at: datetime

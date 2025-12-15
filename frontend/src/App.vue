@@ -12,13 +12,8 @@ import { useChatStore } from '@/stores/chat';
 const chatStore = useChatStore();
 
 onMounted(async () => {
-  // 加载会话列表
-  await chatStore.loadSessions();
-  
-  // 如果没有会话，创建默认会话
-  if (!chatStore.hasSessions) {
-    await chatStore.createSession('欢迎使用研究助手');
-  }
+  // 初始化聊天store
+  await chatStore.init();
 });
 </script>
 

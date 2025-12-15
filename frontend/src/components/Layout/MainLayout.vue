@@ -34,7 +34,12 @@
         </el-header>
         
         <el-main class="main-content">
-          <slot />
+          <slot v-if="currentSession" />
+          <div v-else class="no-session">
+            <el-empty description="请选择一个对话或创建新对话">
+              <el-button type="primary" @click="handleNewSession">创建新对话</el-button>
+            </el-empty>
+          </div>
         </el-main>
       </el-container>
     </el-container>
@@ -104,5 +109,12 @@ const handleNewSession = async () => {
 .main-content {
   padding: 0;
   background-color: #f8f9fa;
+}
+
+.no-session {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 </style>

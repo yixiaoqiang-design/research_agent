@@ -18,7 +18,7 @@
         <div v-if="isStreaming && streamContent" class="message-wrapper">
           <MessageBubble 
             :message="{
-              session_id: currentSessionId,
+              session_id: currentSessionId || 'temp',
               role: 'assistant',
               content: streamContent,
               created_at: new Date().toISOString(),
@@ -69,7 +69,7 @@
               <el-button 
                 :icon="Delete" 
                 @click="handleClear"
-                :disabled="!hasMessages"
+                :disabled="!hasMessages || !currentSessionId"
               />
             </el-tooltip>
             
@@ -87,7 +87,7 @@
             type="primary" 
             @click="handleSend"
             :loading="isLoading"
-            :disabled="!inputMessage.trim() || isStreaming"
+            :disabled="!inputMessage.trim() || isStreaming || !currentSessionId"
             round
           >
             <template #icon>
@@ -148,7 +148,7 @@ const sendQuickQuestion = (question: string) => {
 };
 
 const handleSend = async () => {
-  if (!inputMessage.value.trim() || isLoading.value || isStreaming.value) {
+  if (!inputMessage.value.trim() || isLoading.value || isStreaming.value || !currentSessionId.value) {
     return;
   }
   
@@ -182,6 +182,7 @@ watch([messages, streamContent], () => {
 </script>
 
 <style scoped>
+/* 样式保持不变 */
 .chat-window {
   height: 100%;
   display: flex;

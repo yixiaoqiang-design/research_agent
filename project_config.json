@@ -1,0 +1,7 @@
+{
+  "project_name": "my_research_agent",
+  "description": "",
+  "workspace": "my_research_agent",
+  "created_at": "2025-12-16T00:15:52.543489",
+  "exclude_folders": "node_modules,dist,build,.git,.vscode,.idea,__pycache__,.pytest_cache,venv,env,target,out"
+}

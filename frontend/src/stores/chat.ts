@@ -32,7 +32,7 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 当前会话ID
    */
-  const currentSessionId = computed(() => currentSession.value?.session_id || '');
+  const currentSessionId = computed(() => currentSession.value?.id || '');
   
   /**
    * 是否有会话
@@ -62,6 +62,11 @@ export const useChatStore = defineStore('chat', () => {
       const data = await apiClient.getSessions();
       sessions.value = data;
       console.log('会话列表加载成功，数量:', sessions.value.length);
+      
+      // 如果有会话但没有当前会话，选择第一个
+      if (sessions.value.length > 0 && !currentSession.value) {
+        await switchSession(sessions.value[0].id);
+      }
     } catch (error) {
       console.error('加载会话失败:', error);
       throw error;
@@ -78,8 +83,8 @@ export const useChatStore = defineStore('chat', () => {
       console.log('正在创建新会话...');
       const session = await apiClient.createSession(title);
       sessions.value.unshift(session);
-      await switchSession(session.session_id);
-      console.log('新会话创建成功:', session.session_id);
+      await switchSession(session.id);
+      console.log('新会话创建成功:', session.id);
       return session;
     } catch (error) {
       console.error('创建会话失败:', error);
@@ -119,10 +124,10 @@ export const useChatStore = defineStore('chat', () => {
       await apiClient.deleteSession(sessionId);
       
       // 从列表中移除
-      sessions.value = sessions.value.filter(s => s.session_id !== sessionId);
+      sessions.value = sessions.value.filter(s => s.id !== sessionId);
       
       // 如果删除的是当前会话，切换到其他会话
-      if (currentSession.value?.session_id === sessionId) {
+      if (currentSession.value?.id === sessionId) {
         closeStreamConnection();
         currentSession.value = null;
         messages.value = [];
@@ -130,7 +135,7 @@ export const useChatStore = defineStore('chat', () => {
         
         // 如果有其他会话，切换到第一个
         if (sessions.value.length > 0) {
-          await switchSession(sessions.value[0].session_id);
+          await switchSession(sessions.value[0].id);
         } else {
           // 否则创建新会话
           await createSession();
@@ -152,10 +157,10 @@ export const useChatStore = defineStore('chat', () => {
   async function renameSession(sessionId: string, newTitle: string) {
     try {
       // 这里需要后端支持重命名API，暂时在前端更新
-      const session = sessions.value.find(s => s.session_id === sessionId);
+      const session = sessions.value.find(s => s.id === sessionId);
       if (session) {
         session.title = newTitle;
-        if (currentSession.value?.session_id === sessionId) {
+        if (currentSession.value?.id === sessionId) {
           currentSession.value.title = newTitle;
         }
       }
@@ -263,9 +268,15 @@ export const useChatStore = defineStore('chat', () => {
     console.log('开始发送流式消息...');
 
     try {
+      // 确保有有效的 session_id
+      const sessionId = currentSessionId.value;
+      if (!sessionId) {
+        throw new Error('没有有效的会话ID');
+      }
+
       streamConnection.value = apiClient.createStreamConnection(
         {
-          session_id: currentSessionId.value,
+          session_id: sessionId,
           message: content
         },
         {
@@ -282,7 +293,7 @@ export const useChatStore = defineStore('chat', () => {
               
               // 流式传输完成，创建最终消息
               const assistantMessage: ChatMessage = {
-                session_id: currentSessionId.value,
+                session_id: sessionId,
                 role: 'assistant',
                 content: streamContent.value,
                 tool_calls: data.tool_calls,
@@ -307,7 +318,7 @@ export const useChatStore = defineStore('chat', () => {
             // 只有当不是因为正常关闭导致的错误才显示错误消息
             if (streamConnection.value) {
               const errorMessage: ChatMessage = {
-                session_id: currentSessionId.value,
+                session_id: sessionId,
                 role: 'assistant',
                 content: '抱歉，消息传输中断，请稍后重试。',
                 created_at: new Date().toISOString()
@@ -346,7 +357,7 @@ export const useChatStore = defineStore('chat', () => {
    */
   function updateSessionAfterMessage() {
     const sessionIndex = sessions.value.findIndex(
-      s => s.session_id === currentSessionId.value
+      s => s.id === currentSessionId.value
     );
     
     if (sessionIndex !== -1) {
@@ -433,9 +444,6 @@ export const useChatStore = defineStore('chat', () => {
       // 如果没有会话，创建默认会话
       if (!hasSessions.value) {
         await createSession('欢迎使用研究助手');
-      } else if (!currentSession.value) {
-        // 有会话但没有当前会话，选择第一个
-        await switchSession(sessions.value[0].session_id);
       }
     } catch (error) {
       console.error('初始化聊天store失败:', error);

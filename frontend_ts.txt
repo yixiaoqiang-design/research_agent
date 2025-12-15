@@ -1,0 +1,1184 @@
+请输入要搜索的目录路径（留空使用当前目录）: 请输入文件扩展名（如: txt, py, md）: 在目录 'frontend' 中查找扩展名为 '.ts' 的文件...
+忽略 node_modules 目录
+============================================================
+
+文件 1: frontend\env.d.ts
+----------------------------------------
+/// <reference types="vite/client" />
+
+
+文件 2: frontend\eslint.config.ts
+----------------------------------------
+import { globalIgnores } from 'eslint/config'
+import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
+import pluginVue from 'eslint-plugin-vue'
+import pluginVitest from '@vitest/eslint-plugin'
+import pluginPlaywright from 'eslint-plugin-playwright'
+import skipFormatting from '@vue/eslint-config-prettier/skip-formatting'
+
+// To allow more languages other than `ts` in `.vue` files, uncomment the following lines:
+// import { configureVueProject } from '@vue/eslint-config-typescript'
+// configureVueProject({ scriptLangs: ['ts', 'tsx'] })
+// More info at https://github.com/vuejs/eslint-config-typescript/#advanced-setup
+
+export default defineConfigWithVueTs(
+  {
+    name: 'app/files-to-lint',
+    files: ['**/*.{ts,mts,tsx,vue}'],
+  },
+
+  globalIgnores(['**/dist/**', '**/dist-ssr/**', '**/coverage/**']),
+
+  pluginVue.configs['flat/essential'],
+  vueTsConfigs.recommended,
+  
+  {
+    ...pluginVitest.configs.recommended,
+    files: ['src/**/__tests__/*'],
+  },
+  
+  {
+    ...pluginPlaywright.configs['flat/recommended'],
+    files: ['e2e/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+  },
+  skipFormatting,
+)
+
+
+文件 3: frontend\playwright.config.ts
+----------------------------------------
+import process from 'node:process'
+import { defineConfig, devices } from '@playwright/test'
+
+/**
+ * Read environment variables from file.
+ * https://github.com/motdotla/dotenv
+ */
+// require('dotenv').config();
+
+/**
+ * See https://playwright.dev/docs/test-configuration.
+ */
+export default defineConfig({
+  testDir: './e2e',
+  /* Maximum time one test can run for. */
+  timeout: 30 * 1000,
+  expect: {
+    /**
+     * Maximum time expect() should wait for the condition to be met.
+     * For example in `await expect(locator).toHaveText();`
+     */
+    timeout: 5000,
+  },
+  /* Fail the build on CI if you accidentally left test.only in the source code. */
+  forbidOnly: !!process.env.CI,
+  /* Retry on CI only */
+  retries: process.env.CI ? 2 : 0,
+  /* Opt out of parallel tests on CI. */
+  workers: process.env.CI ? 1 : undefined,
+  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
+  reporter: 'html',
+  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  use: {
+    /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
+    actionTimeout: 0,
+    /* Base URL to use in actions like `await page.goto('/')`. */
+    baseURL: process.env.CI ? 'http://localhost:4173' : 'http://localhost:5173',
+
+    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+    trace: 'on-first-retry',
+
+    /* Only on CI systems run the tests headless */
+    headless: !!process.env.CI,
+  },
+
+  /* Configure projects for major browsers */
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
+      name: 'firefox',
+      use: {
+        ...devices['Desktop Firefox'],
+      },
+    },
+    {
+      name: 'webkit',
+      use: {
+        ...devices['Desktop Safari'],
+      },
+    },
+
+    /* Test against mobile viewports. */
+    // {
+    //   name: 'Mobile Chrome',
+    //   use: {
+    //     ...devices['Pixel 5'],
+    //   },
+    // },
+    // {
+    //   name: 'Mobile Safari',
+    //   use: {
+    //     ...devices['iPhone 12'],
+    //   },
+    // },
+
+    /* Test against branded browsers. */
+    // {
+    //   name: 'Microsoft Edge',
+    //   use: {
+    //     channel: 'msedge',
+    //   },
+    // },
+    // {
+    //   name: 'Google Chrome',
+    //   use: {
+    //     channel: 'chrome',
+    //   },
+    // },
+  ],
+
+  /* Folder for test artifacts such as screenshots, videos, traces, etc. */
+  // outputDir: 'test-results/',
+
+  /* Run your local dev server before starting the tests */
+  webServer: {
+    /**
+     * Use the dev server by default for faster feedback loop.
+     * Use the preview server on CI for more realistic testing.
+     * Playwright will re-use the local server if there is already a dev-server running.
+     */
+    command: process.env.CI ? 'npm run preview' : 'npm run dev',
+    port: process.env.CI ? 4173 : 5173,
+    reuseExistingServer: !process.env.CI,
+  },
+})
+
+
+文件 4: frontend\vite.config.ts
+----------------------------------------
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import { resolve } from 'path';
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+    },
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+});
+
+文件 5: frontend\vitest.config.ts
+----------------------------------------
+import { fileURLToPath } from 'node:url'
+import { mergeConfig, defineConfig, configDefaults } from 'vitest/config'
+import viteConfig from './vite.config'
+
+export default mergeConfig(
+  viteConfig,
+  defineConfig({
+    test: {
+      environment: 'jsdom',
+      exclude: [...configDefaults.exclude, 'e2e/**'],
+      root: fileURLToPath(new URL('./', import.meta.url)),
+    },
+  }),
+)
+
+
+文件 6: frontend\e2e\vue.spec.ts
+----------------------------------------
+import { test, expect } from '@playwright/test';
+
+// See here how to get started:
+// https://playwright.dev/docs/intro
+test('visits the app root url', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('h1')).toHaveText('You did it!');
+})
+
+
+文件 7: frontend\src\main.ts
+----------------------------------------
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
+import ElementPlus from 'element-plus';
+import 'element-plus/dist/index.css';
+import * as ElementPlusIconsVue from '@element-plus/icons-vue';
+
+import App from './App.vue';
+import router from './router';
+
+const app = createApp(App);
+
+// 注册所有Element Plus图标
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  app.component(key, component);
+}
+
+// 配置Pinia
+const pinia = createPinia();
+pinia.use(piniaPluginPersistedstate);
+
+app.use(pinia);
+app.use(router);
+app.use(ElementPlus);
+
+app.mount('#app');
+
+文件 8: frontend\src\router\index.ts
+----------------------------------------
+import { createRouter, createWebHistory } from 'vue-router';
+import ChatView from '@/views/ChatView.vue';
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/',
+      name: 'chat',
+      component: ChatView,
+    },
+  ],
+});
+
+export default router;
+
+文件 9: frontend\src\stores\chat.ts
+----------------------------------------
+import { defineStore } from 'pinia';
+import { ref, computed, onUnmounted } from 'vue';
+import { apiClient } from '@/utils/api';
+import type { ChatMessage, ChatSession } from '@/types/chat';
+
+export const useChatStore = defineStore('chat', () => {
+  // ====================== 状态定义 ======================
+  
+  // 聊天会话列表
+  const sessions = ref<ChatSession[]>([]);
+  
+  // 当前活跃的会话
+  const currentSession = ref<ChatSession | null>(null);
+  
+  // 当前会话的消息列表
+  const messages = ref<ChatMessage[]>([]);
+  
+  // 加载状态（非流式请求）
+  const isLoading = ref(false);
+  
+  // 流式处理状态
+  const isStreaming = ref(false);
+  
+  // 流式内容缓冲
+  const streamContent = ref('');
+  
+  // 当前流式连接
+  const streamConnection = ref<ReturnType<typeof apiClient.createStreamConnection> | null>(null);
+
+  // ====================== 计算属性 ======================
+  
+  /**
+   * 当前会话ID
+   */
+  const currentSessionId = computed(() => currentSession.value?.session_id || '');
+  
+  /**
+   * 是否有会话
+   */
+  const hasSessions = computed(() => sessions.value.length > 0);
+  
+  /**
+   * 是否有消息
+   */
+  const hasMessages = computed(() => messages.value.length > 0);
+  
+  /**
+   * 是否可以发送消息（输入框非空且没有正在处理中的请求）
+   */
+  const canSendMessage = computed(() => {
+    return !isLoading.value && !isStreaming.value;
+  });
+
+  // ====================== 会话管理方法 ======================
+  
+  /**
+   * 加载所有会话
+   */
+  async function loadSessions() {
+    try {
+      console.log('正在加载会话列表...');
+      const data = await apiClient.getSessions();
+      sessions.value = data;
+      console.log('会话列表加载成功，数量:', sessions.value.length);
+    } catch (error) {
+      console.error('加载会话失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 创建新会话
+   * @param title 会话标题
+   * @returns 创建的会话
+   */
+  async function createSession(title?: string) {
+    try {
+      console.log('正在创建新会话...');
+      const session = await apiClient.createSession(title);
+      sessions.value.unshift(session);
+      await switchSession(session.session_id);
+      console.log('新会话创建成功:', session.session_id);
+      return session;
+    } catch (error) {
+      console.error('创建会话失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 切换到指定会话
+   * @param sessionId 会话ID
+   */
+  async function switchSession(sessionId: string) {
+    try {
+      // 关闭当前流式连接
+      closeStreamConnection();
+      
+      console.log('正在切换到会话:', sessionId);
+      const session = await apiClient.getSession(sessionId);
+      currentSession.value = session;
+      messages.value = session.messages || [];
+      streamContent.value = '';
+      isStreaming.value = false;
+      console.log('会话切换成功，消息数量:', messages.value.length);
+    } catch (error) {
+      console.error('切换会话失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 删除会话
+   * @param sessionId 会话ID
+   */
+  async function deleteSession(sessionId: string) {
+    try {
+      console.log('正在删除会话:', sessionId);
+      await apiClient.deleteSession(sessionId);
+      
+      // 从列表中移除
+      sessions.value = sessions.value.filter(s => s.session_id !== sessionId);
+      
+      // 如果删除的是当前会话，切换到其他会话
+      if (currentSession.value?.session_id === sessionId) {
+        closeStreamConnection();
+        currentSession.value = null;
+        messages.value = [];
+        streamContent.value = '';
+        
+        // 如果有其他会话，切换到第一个
+        if (sessions.value.length > 0) {
+          await switchSession(sessions.value[0].session_id);
+        } else {
+          // 否则创建新会话
+          await createSession();
+        }
+      }
+      
+      console.log('会话删除成功');
+    } catch (error) {
+      console.error('删除会话失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 重命名会话
+   * @param sessionId 会话ID
+   * @param newTitle 新标题
+   */
+  async function renameSession(sessionId: string, newTitle: string) {
+    try {
+      // 这里需要后端支持重命名API，暂时在前端更新
+      const session = sessions.value.find(s => s.session_id === sessionId);
+      if (session) {
+        session.title = newTitle;
+        if (currentSession.value?.session_id === sessionId) {
+          currentSession.value.title = newTitle;
+        }
+      }
+    } catch (error) {
+      console.error('重命名会话失败:', error);
+      throw error;
+    }
+  }
+
+  // ====================== 消息处理方法 ======================
+  
+  /**
+   * 发送消息
+   * @param content 消息内容
+   * @param useStream 是否使用流式响应
+   */
+  async function sendMessage(content: string, useStream: boolean = true) {
+    if (!content.trim() || !canSendMessage.value) {
+      console.warn('消息发送被阻止：内容为空或正在处理中');
+      return;
+    }
+
+    // 如果没有当前会话，创建新会话
+    if (!currentSession.value) {
+      console.log('没有当前会话，正在创建新会话...');
+      await createSession(content.slice(0, 50));
+    }
+
+    // 添加用户消息
+    const userMessage: ChatMessage = {
+      session_id: currentSessionId.value,
+      role: 'user',
+      content: content,
+      created_at: new Date().toISOString()
+    };
+    
+    messages.value.push(userMessage);
+    console.log('用户消息已添加');
+
+    if (useStream) {
+      // 流式响应
+      await sendStreamMessage(content);
+    } else {
+      // 非流式响应
+      await sendRegularMessage(content);
+    }
+  }
+  
+  /**
+   * 发送非流式消息
+   * @param content 消息内容
+   */
+  async function sendRegularMessage(content: string) {
+    isLoading.value = true;
+    console.log('开始发送非流式消息...');
+    
+    try {
+      const response = await apiClient.sendMessage({
+        session_id: currentSessionId.value,
+        message: content,
+        stream: false
+      });
+      
+      const assistantMessage: ChatMessage = {
+        session_id: currentSessionId.value,
+        role: 'assistant',
+        content: response.message.content,
+        tool_calls: response.message.tool_calls,
+        tool_results: response.message.tool_results,
+        created_at: new Date().toISOString()
+      };
+      
+      messages.value.push(assistantMessage);
+      console.log('非流式消息发送成功');
+      
+      // 更新会话列表中的会话
+      updateSessionAfterMessage();
+      
+    } catch (error) {
+      console.error('发送非流式消息失败:', error);
+      
+      // 添加错误消息
+      const errorMessage: ChatMessage = {
+        session_id: currentSessionId.value,
+        role: 'assistant',
+        content: '抱歉，消息发送失败，请稍后重试。',
+        created_at: new Date().toISOString()
+      };
+      messages.value.push(errorMessage);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+  
+  /**
+   * 发送流式消息
+   * @param content 消息内容
+   */
+  async function sendStreamMessage(content: string) {
+    // 关闭之前的连接
+    closeStreamConnection();
+    
+    isStreaming.value = true;
+    streamContent.value = '';
+    console.log('开始发送流式消息...');
+
+    try {
+      streamConnection.value = apiClient.createStreamConnection(
+        {
+          session_id: currentSessionId.value,
+          message: content
+        },
+        {
+          onOpen: () => {
+            console.log('流式连接已建立');
+          },
+          onMessage: (data) => {
+            if (data.content) {
+              streamContent.value += data.content;
+            }
+
+            if (data.is_final) {
+              console.log('流式传输完成');
+              
+              // 流式传输完成，创建最终消息
+              const assistantMessage: ChatMessage = {
+                session_id: currentSessionId.value,
+                role: 'assistant',
+                content: streamContent.value,
+                tool_calls: data.tool_calls,
+                created_at: new Date().toISOString()
+              };
+              
+              messages.value.push(assistantMessage);
+              streamContent.value = '';
+              isStreaming.value = false;
+              
+              // 更新会话列表
+              updateSessionAfterMessage();
+              
+              // 关闭连接
+              closeStreamConnection();
+            }
+          },
+          onError: (error) => {
+            console.error('流式传输错误:', error);
+            isStreaming.value = false;
+            
+            // 只有当不是因为正常关闭导致的错误才显示错误消息
+            if (streamConnection.value) {
+              const errorMessage: ChatMessage = {
+                session_id: currentSessionId.value,
+                role: 'assistant',
+                content: '抱歉，消息传输中断，请稍后重试。',
+                created_at: new Date().toISOString()
+              };
+              messages.value.push(errorMessage);
+            }
+            
+            closeStreamConnection();
+          },
+          onClose: () => {
+            console.log('流式连接已关闭');
+            isStreaming.value = false;
+            streamConnection.value = null;
+          }
+        }
+      );
+
+      console.log('流式连接已创建');
+    } catch (error) {
+      console.error('启动流式传输失败:', error);
+      isStreaming.value = false;
+      
+      // 添加错误消息
+      const errorMessage: ChatMessage = {
+        session_id: currentSessionId.value,
+        role: 'assistant',
+        content: '抱歉，无法建立流式连接，请稍后重试。',
+        created_at: new Date().toISOString()
+      };
+      messages.value.push(errorMessage);
+    }
+  }
+  
+  /**
+   * 更新会话的最后更新时间
+   */
+  function updateSessionAfterMessage() {
+    const sessionIndex = sessions.value.findIndex(
+      s => s.session_id === currentSessionId.value
+    );
+    
+    if (sessionIndex !== -1) {
+      sessions.value[sessionIndex].updated_at = new Date().toISOString();
+      
+      // 如果这是第一条消息，根据用户消息内容更新标题
+      if (messages.value.length === 2) { // 用户消息 + AI回复
+        const userMessage = messages.value.find(m => m.role === 'user');
+        if (userMessage && userMessage.content) {
+          const newTitle = userMessage.content.slice(0, 50) + 
+            (userMessage.content.length > 50 ? '...' : '');
+          
+          sessions.value[sessionIndex].title = newTitle;
+          
+          // 同时更新当前会话标题
+          if (currentSession.value) {
+            currentSession.value.title = newTitle;
+          }
+        }
+      }
+    }
+  }
+
+  // ====================== 流式连接管理 ======================
+  
+  /**
+   * 关闭当前的流式连接
+   */
+  function closeStreamConnection() {
+    if (streamConnection.value) {
+      console.log('正在关闭流式连接...');
+      try {
+        streamConnection.value.close();
+      } catch (error) {
+        console.warn('关闭流式连接时发生错误:', error);
+      } finally {
+        streamConnection.value = null;
+        isStreaming.value = false;
+      }
+    }
+  }
+  
+  /**
+   * 清空当前会话（不删除）
+   */
+  function clearCurrentSession() {
+    closeStreamConnection();
+    currentSession.value = null;
+    messages.value = [];
+    streamContent.value = '';
+    console.log('当前会话已清空');
+  }
+  
+  /**
+   * 清空所有会话（从store中移除，不删除服务器数据）
+   */
+  function clearAllSessions() {
+    closeStreamConnection();
+    sessions.value = [];
+    currentSession.value = null;
+    messages.value = [];
+    streamContent.value = '';
+    console.log('所有会话已清空');
+  }
+  
+  /**
+   * 重新加载当前会话的消息
+   */
+  async function reloadCurrentSession() {
+    if (currentSessionId.value) {
+      await switchSession(currentSessionId.value);
+    }
+  }
+
+  // ====================== 初始化与清理 ======================
+  
+  /**
+   * 初始化聊天store
+   */
+  async function init() {
+    try {
+      await loadSessions();
+      
+      // 如果没有会话，创建默认会话
+      if (!hasSessions.value) {
+        await createSession('欢迎使用研究助手');
+      } else if (!currentSession.value) {
+        // 有会话但没有当前会话，选择第一个
+        await switchSession(sessions.value[0].session_id);
+      }
+    } catch (error) {
+      console.error('初始化聊天store失败:', error);
+    }
+  }
+  
+  /**
+   * 清理资源（在组件卸载时调用）
+   */
+  onUnmounted(() => {
+    closeStreamConnection();
+    console.log('聊天store资源已清理');
+  });
+
+  // ====================== 导出 ======================
+  return {
+    // 状态
+    sessions,
+    currentSession,
+    messages,
+    isLoading,
+    isStreaming,
+    streamContent,
+    
+    // 计算属性
+    currentSessionId,
+    hasSessions,
+    hasMessages,
+    canSendMessage,
+    
+    // 会话管理方法
+    loadSessions,
+    createSession,
+    switchSession,
+    deleteSession,
+    renameSession,
+    
+    // 消息处理方法
+    sendMessage,
+    sendRegularMessage,
+    sendStreamMessage,
+    clearCurrentSession,
+    clearAllSessions,
+    reloadCurrentSession,
+    
+    // 连接管理
+    closeStreamConnection,
+    
+    // 初始化
+    init,
+  };
+});
+
+// 导出store的类型
+export type ChatStore = ReturnType<typeof useChatStore>;
+
+文件 10: frontend\src\stores\counter.ts
+----------------------------------------
+import { ref, computed } from 'vue'
+import { defineStore } from 'pinia'
+
+export const useCounterStore = defineStore('counter', () => {
+  const count = ref(0)
+  const doubleCount = computed(() => count.value * 2)
+  function increment() {
+    count.value++
+  }
+
+  return { count, doubleCount, increment }
+})
+
+
+文件 11: frontend\src\types\chat.ts
+----------------------------------------
+// src/types/chat.ts
+
+export interface ChatMessage {
+  id?: number;
+  session_id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  tool_calls?: ToolCall[];
+  tool_results?: ToolResult[];
+  created_at?: string;
+  is_streaming?: boolean;
+}
+
+export interface ToolCall {
+  id?: string;
+  name: string;
+  args: Record<string, any>;
+}
+
+export interface ToolResult {
+  tool_call_id: string;
+  result: string;
+}
+
+export interface ChatSession {
+  id: number;
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  is_active: boolean;
+  messages?: ChatMessage[];
+}
+
+export interface ChatRequest {
+  session_id?: string;
+  message: string;
+  stream?: boolean;
+}
+
+export interface ChatResponse {
+  session_id: string;
+  message: ChatMessage;
+  is_complete: boolean;
+}
+
+export interface ChatStreamChunk {
+  content: string;
+  is_final: boolean;
+  tool_calls?: ToolCall[];
+}
+
+// 流式连接相关类型
+export interface StreamCallbacks {
+  onMessage?: (data: any) => void;
+  onError?: (error: any) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+}
+
+export interface StreamConnection {
+  close: () => void;
+}
+
+文件 12: frontend\src\utils\api.ts
+----------------------------------------
+import axios from 'axios';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+// API 调用接口定义
+export interface ChatRequest {
+  session_id?: string;
+  message: string;
+  stream?: boolean;
+}
+
+export interface ChatSession {
+  id: number;
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  is_active: boolean;
+  messages?: ChatMessage[];
+}
+
+export interface ChatMessage {
+  id?: number;
+  session_id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  tool_calls?: any[];
+  tool_results?: any;
+  created_at?: string;
+}
+
+export interface StreamCallbacks {
+  onMessage?: (data: any) => void;
+  onError?: (error: any) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+}
+
+export interface StreamConnection {
+  close: () => void;
+}
+
+class ApiClient {
+  private client = axios.create({
+    baseURL: API_BASE_URL,
+    timeout: 30000,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  // ====================== 聊天会话相关 ======================
+
+  /**
+   * 创建新的聊天会话
+   * @param title 会话标题
+   * @returns 会话信息
+   */
+  async createSession(title: string = '新对话'): Promise<any> {
+    const response = await this.client.post('/api/chat/sessions', { title });
+    return response.data;
+  }
+
+  /**
+   * 获取所有聊天会话
+   * @returns 会话列表
+   */
+  async getSessions(): Promise<any> {
+    const response = await this.client.get('/api/chat/sessions');
+    return response.data;
+  }
+
+  /**
+   * 获取特定会话
+   * @param sessionId 会话ID
+   * @returns 会话信息
+   */
+  async getSession(sessionId: string): Promise<any> {
+    const response = await this.client.get(`/api/chat/sessions/${sessionId}`);
+    return response.data;
+  }
+
+  /**
+   * 删除会话
+   * @param sessionId 会话ID
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.client.delete(`/api/chat/sessions/${sessionId}`);
+  }
+
+  /**
+   * 获取会话的所有消息
+   * @param sessionId 会话ID
+   * @returns 消息列表
+   */
+  async getSessionMessages(sessionId: string): Promise<any> {
+    const response = await this.client.get(`/api/chat/sessions/${sessionId}/messages`);
+    return response.data;
+  }
+
+  // ====================== 消息相关 ======================
+
+  /**
+   * 发送消息（非流式）
+   * @param data 消息数据
+   * @returns 响应结果
+   */
+  async sendMessage(data: ChatRequest): Promise<any> {
+    const response = await this.client.post('/api/chat/message', data);
+    return response.data;
+  }
+
+  // ====================== 流式连接（使用 fetch API） ======================
+
+  /**
+   * 创建流式连接（POST 请求）
+   * @param data 请求数据
+   * @param callbacks 回调函数
+   * @returns 可关闭的连接对象
+   */
+  createStreamConnection(
+    data: { 
+      session_id?: string; 
+      message: string;
+    }, 
+    callbacks: StreamCallbacks = {}
+  ): StreamConnection {
+    const url = `${API_BASE_URL}/api/chat/stream`;
+    const requestData = {
+      session_id: data.session_id,
+      message: data.message,
+      stream: true
+    };
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+    
+    let isActive = true;
+    let isComplete = false;
+
+    // 使用 fetch 发送 POST 请求
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestData),
+      signal,
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP 错误! 状态码: ${response.status} ${response.statusText}`);
+        }
+
+        if (!response.body) {
+          throw new Error('浏览器不支持 ReadableStream');
+        }
+
+        // 连接成功建立
+        console.log('流式连接已建立');
+        callbacks.onOpen?.();
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        // 处理流式数据
+        const processStream = async (): Promise<void> => {
+          try {
+            while (isActive) {
+              const { done, value } = await reader.read();
+              
+              if (done) {
+                console.log('流式传输完成');
+                isComplete = true;
+                callbacks.onClose?.();
+                break;
+              }
+
+              // 解码数据并添加到缓冲区
+              buffer += decoder.decode(value, { stream: true });
+              
+              // 按行分割处理 SSE 格式
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || ''; // 保留未完成的行
+              
+              for (const line of lines) {
+                if (!isActive) break;
+                
+                if (line.startsWith('data: ')) {
+                  const dataLine = line.substring(6).trim();
+                  
+                  // 忽略空行和结束标记
+                  if (dataLine === '' || dataLine === '[DONE]') {
+                    if (dataLine === '[DONE]') {
+                      console.log('接收到结束标记 [DONE]');
+                      isComplete = true;
+                      callbacks.onClose?.();
+                    }
+                    continue;
+                  }
+                  
+                  try {
+                    const parsedData = JSON.parse(dataLine);
+                    callbacks.onMessage?.(parsedData);
+                  } catch (error) {
+                    console.error('解析 SSE 数据失败:', error, '原始数据:', dataLine);
+                    
+                    // 如果解析失败，尝试发送原始内容
+                    if (dataLine) {
+                      callbacks.onMessage?.({
+                        content: dataLine,
+                        is_final: false
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            if (error.name === 'AbortError') {
+              console.log('流式请求被主动中断');
+              if (!isComplete) {
+                callbacks.onClose?.();
+              }
+            } else if (isActive) {
+              console.error('读取流数据时发生错误:', error);
+              callbacks.onError?.(error);
+            }
+          } finally {
+            isActive = false;
+          }
+        };
+
+        processStream();
+      })
+      .catch(error => {
+        if (isActive) {
+          console.error('发送流式请求失败:', error);
+          callbacks.onError?.(error);
+        }
+      });
+
+    return {
+      close: () => {
+        if (!isActive) return;
+        isActive = false;
+        console.log('手动关闭流式连接');
+        controller.abort();
+        if (!isComplete) {
+          callbacks.onClose?.();
+        }
+      }
+    };
+  }
+
+  /**
+   * 发送流式消息（简化接口）
+   * @param data 消息数据
+   * @returns 流式连接对象
+   */
+  sendStreamMessage(data: { 
+    session_id?: string; 
+    message: string;
+  }): StreamConnection {
+    return this.createStreamConnection(data);
+  }
+
+  // ====================== 辅助方法 ======================
+
+  /**
+   * 检查 API 健康状态
+   * @returns 健康状态
+   */
+  async healthCheck(): Promise<boolean> {
+    try {
+      const response = await this.client.get('/health');
+      return response.status === 200;
+    } catch (error) {
+      console.error('API 健康检查失败:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 设置认证令牌
+   * @param token 认证令牌
+   */
+  setAuthToken(token: string): void {
+    this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  }
+
+  /**
+   * 移除认证令牌
+   */
+  removeAuthToken(): void {
+    delete this.client.defaults.headers.common['Authorization'];
+  }
+}
+
+// 创建并导出单例实例
+export const apiClient = new ApiClient();
+
+// 为了方便使用，也导出一些常用类型
+export type { AxiosInstance } from 'axios';
+
+// 导出一些常用的 API 调用函数
+export const chatApi = {
+  // 会话管理
+  createSession: (title: string = '新对话') => apiClient.createSession(title),
+  getSessions: () => apiClient.getSessions(),
+  getSession: (sessionId: string) => apiClient.getSession(sessionId),
+  deleteSession: (sessionId: string) => apiClient.deleteSession(sessionId),
+  getSessionMessages: (sessionId: string) => apiClient.getSessionMessages(sessionId),
+  
+  // 消息发送
+  sendMessage: (data: ChatRequest) => apiClient.sendMessage(data),
+  sendStreamMessage: (data: { session_id?: string; message: string }) => apiClient.sendStreamMessage(data),
+  
+  // 辅助功能
+  healthCheck: () => apiClient.healthCheck(),
+};
+
+export default apiClient;
+
+文件 13: frontend\src\__tests__\App.spec.ts
+----------------------------------------
+import { describe, it, expect } from 'vitest'
+
+import { mount } from '@vue/test-utils'
+import App from '../App.vue'
+
+describe('App', () => {
+  it('mounts renders properly', () => {
+    const wrapper = mount(App)
+    expect(wrapper.text()).toContain('You did it!')
+  })
+})
+
+============================================================
+共找到 13 个.ts文件

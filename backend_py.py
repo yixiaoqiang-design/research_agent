@@ -1,0 +1,687 @@
+请输入要搜索的目录路径（留空使用当前目录）: 请输入文件扩展名（如: txt, py, md）: 在目录 'backend' 中查找扩展名为 '.py' 的文件...
+忽略 node_modules 目录
+============================================================
+
+文件 1: backend\app\config.py
+----------------------------------------
+import os
+from typing import Optional
+from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Settings(BaseSettings):
+    # DeepSeek配置
+    deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    
+    # 数据库配置
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./research_agent.db")
+    
+    # 服务器配置
+    host: str = os.getenv("HOST", "0.0.0.0")
+    port: int = int(os.getenv("PORT", "8000"))
+    debug: bool = os.getenv("DEBUG", "true").lower() == "true"
+    
+    # Agent配置
+    agent_temperature: float = float(os.getenv("AGENT_TEMPERATURE", "0.1"))
+    agent_max_tokens: int = int(os.getenv("AGENT_MAX_TOKENS", "2000"))
+    
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+
+文件 2: backend\app\database.py
+----------------------------------------
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from app.config import settings
+
+# 创建数据库引擎
+engine = create_engine(
+    settings.database_url,
+    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {}
+)
+
+# 创建会话工厂
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# 依赖注入获取数据库会话
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# 创建所有表
+def create_tables():
+    from app.models.chat import Base
+    Base.metadata.create_all(bind=engine)
+
+文件 3: backend\app\main.py
+----------------------------------------
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+import uvicorn
+
+from app.config import settings
+from app.database import create_tables
+from app.api.chat import router as chat_router
+import logging
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO if not settings.debug else logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时
+    logger.info("Starting Research Agent API...")
+    create_tables()  # 创建数据库表
+    logger.info("Database tables created")
+    yield
+    # 关闭时
+    logger.info("Shutting down Research Agent API...")
+
+# 创建FastAPI应用
+app = FastAPI(
+    title="Research Agent API",
+    description="学术问答智能体后端API",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# 配置CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # Vite默认端口
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 注册路由
+app.include_router(chat_router)
+
+# 根路由
+@app.get("/")
+async def root():
+    return {
+        "message": "Research Agent API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "redoc": "/redoc"
+    }
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# 启动应用
+if __name__ == "__main__":
+    uvicorn.run(
+        "app.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+        log_level="info"
+    )
+
+文件 4: backend\app\api\chat.py
+----------------------------------------
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.database import get_db
+from app.schemas.chat import (
+    SessionCreate, SessionResponse, ChatRequest, 
+    ChatResponse, ChatStreamChunk, MessageResponse
+)
+from app.services.chat import ChatService
+import json
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+@router.post("/sessions", response_model=SessionResponse)
+async def create_session(
+    session_data: SessionCreate,
+    db: Session = Depends(get_db)
+):
+    """创建新的聊天会话"""
+    service = ChatService(db)
+    session = service.create_session(session_data)
+    return session
+
+@router.get("/sessions", response_model=List[SessionResponse])
+async def get_sessions(
+    db: Session = Depends(get_db)
+):
+    """获取所有聊天会话"""
+    service = ChatService(db)
+    sessions = service.get_all_sessions()
+    return sessions
+
+@router.get("/sessions/{session_id}", response_model=SessionResponse)
+async def get_session(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """获取特定会话"""
+    service = ChatService(db)
+    session = service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # 获取会话消息
+    messages = service.get_messages(session_id)
+    session.messages = messages
+    
+    return session
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """删除会话"""
+    service = ChatService(db)
+    success = service.delete_session(session_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"message": "Session deleted"}
+
+@router.post("/message", response_model=ChatResponse)
+async def send_message(
+    chat_request: ChatRequest,
+    db: Session = Depends(get_db)
+):
+    """发送消息（非流式）"""
+    if chat_request.stream:
+        raise HTTPException(status_code=400, detail="Use /stream endpoint for streaming")
+    
+    service = ChatService(db)
+    result = await service.process_chat(chat_request)
+    return ChatResponse(
+        session_id=result["session_id"],
+        message=result["message"],
+        is_complete=True
+    )
+
+@router.post("/stream")
+async def stream_message_post(
+    chat_request: ChatRequest,
+    db: Session = Depends(get_db)
+):
+    """流式发送消息（POST方法）"""
+    print()
+    logger.info("Received streaming chat request via POST")
+    logger.info(f"ChatRequest: {chat_request}")
+    
+    if not chat_request.message:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+    
+    service = ChatService(db)
+    
+    async def generate():
+        logger.info("Starting stream generation")
+        try:
+            async for chunk in service.process_stream_chat(chat_request):
+                yield f"data: {json.dumps(chunk)}\n\n"
+        except Exception as e:
+            logger.error(f"流式处理异常: {e}")
+            yield f"data: {json.dumps({'content': f'错误: {str(e)}', 'is_final': True})}\n\n"
+        finally:
+            # 确保发送结束标记
+            yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*"  # 允许跨域
+        }
+    )
+
+@router.get("/sessions/{session_id}/messages", response_model=List[MessageResponse])
+async def get_session_messages(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """获取会话的所有消息"""
+    service = ChatService(db)
+    messages = service.get_messages(session_id)
+    return messages
+
+
+
+文件 5: backend\app\models\chat.py
+----------------------------------------
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql import func
+from datetime import datetime
+
+Base = declarative_base()
+
+class ChatSession(Base):
+    """聊天会话模型"""
+    __tablename__ = "chat_sessions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(50), unique=True, index=True, nullable=False)
+    title = Column(String(200), default="新对话")
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, default=True)
+    
+class ChatMessage(Base):
+    """聊天消息模型"""
+    __tablename__ = "chat_messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(50), index=True, nullable=False)
+    role = Column(String(20), nullable=False)  # user, assistant, system, tool
+    content = Column(Text, nullable=False)
+    tool_calls = Column(JSON, nullable=True)  # 存储工具调用信息
+    tool_results = Column(JSON, nullable=True)  # 存储工具调用结果
+    tokens = Column(Integer, default=0)
+    created_at = Column(DateTime, default=func.now())
+
+文件 6: backend\app\schemas\chat.py
+----------------------------------------
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+
+# 消息基类
+class MessageBase(BaseModel):
+    role: str  # user, assistant, system, tool
+    content: str
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_results: Optional[Dict[str, Any]] = None
+
+# 消息创建请求
+class MessageCreate(MessageBase):
+    session_id: str
+
+# 消息响应
+class MessageResponse(MessageBase):
+    id: int
+    session_id: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# 会话创建请求
+class SessionCreate(BaseModel):
+    title: Optional[str] = "新对话"
+
+# 会话响应
+class SessionResponse(BaseModel):
+    id: int
+    session_id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    is_active: bool
+    messages: List[MessageResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+# 聊天请求
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    stream: Optional[bool] = False
+
+# 聊天响应
+class ChatResponse(BaseModel):
+    session_id: str
+    message: MessageResponse
+    is_complete: bool = True
+
+# 流式响应块
+class ChatStreamChunk(BaseModel):
+    content: str
+    is_final: bool = False
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+
+文件 7: backend\app\services\agent.py
+----------------------------------------
+import os
+from typing import List, Dict, Any
+from langchain_deepseek import ChatDeepSeek
+from langchain.agents import create_agent
+from langchain_community.agent_toolkits.load_tools import load_tools
+from langchain_core.messages import HumanMessage, AIMessage
+from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
+class ResearchAgentService:
+    """研究助手Agent服务"""
+    
+    def __init__(self):
+        self.agent = None
+        self._initialize_agent()
+    
+    def _initialize_agent(self):
+        """初始化Agent"""
+        try:
+            # 1. 初始化DeepSeek模型
+            llm = ChatDeepSeek(
+                model=settings.deepseek_model,
+                temperature=settings.agent_temperature,
+                max_tokens=settings.agent_max_tokens,
+                timeout=None,
+                max_retries=2,
+                api_key=settings.deepseek_api_key,
+                base_url=settings.deepseek_base_url
+            )
+            
+            # 2. 加载工具
+            tools = load_tools(
+                ["arxiv"], 
+                llm=llm
+            )
+            
+            # 4. 创建Agent
+            system_prompt = """你是一个专业的研究助手，专门帮助用户查找、理解和总结学术论文。
+            你可以使用以下工具：
+            1. arxiv - 在arXiv上搜索和获取学术论文
+            
+            请按照以下步骤帮助用户：
+            1. 理解用户的研究需求
+            2. 使用合适的工具搜索相关论文
+            3. 提供论文的关键信息：标题、作者、摘要、关键贡献
+            4. 如果用户要求，可以提供论文的详细总结
+            5. 保持回答专业、准确、有用
+            
+            记住：始终用中文回答，除非用户特别要求使用其他语言。
+            """
+            
+            self.agent = create_agent(
+                model=llm,
+                tools=tools,
+                system_prompt=system_prompt
+            )
+            
+            logger.info("Agent初始化成功")
+            
+        except Exception as e:
+            logger.error(f"Agent初始化失败: {e}")
+            raise
+    
+    async def process_message(self, message: str, history: List[Dict] = None) -> Dict[str, Any]:
+        """处理用户消息"""
+        try:
+            if not self.agent:
+                self._initialize_agent()
+            
+            # 准备消息历史
+            messages = []
+            if history:
+                for msg in history:
+                    if msg["role"] == "user":
+                        messages.append(HumanMessage(content=msg["content"]))
+                    elif msg["role"] == "assistant":
+                        messages.append(AIMessage(content=msg["content"]))
+            
+            # 添加当前消息
+            messages.append(HumanMessage(content=message))
+            
+            # 调用Agent
+            result = self.agent.invoke({
+                "messages": messages
+            })
+            
+            # 提取最后一条消息
+            if result and 'messages' in result and result['messages']:
+                last_message = result['messages'][-1]
+                return {
+                    "content": last_message.content,
+                    "tool_calls": getattr(last_message, 'tool_calls', None),
+                    "tool_results": getattr(last_message, 'tool_results', None)
+                }
+            else:
+                return {"content": "抱歉，我没有收到回复。", "tool_calls": None, "tool_results": None}
+                
+        except Exception as e:
+            logger.error(f"处理消息失败: {e}")
+            return {"content": f"处理消息时出错: {str(e)}", "tool_calls": None, "tool_results": None}
+    
+    async def process_stream(self, message: str, history: List[Dict] = None):
+        """流式处理用户消息（简化版）"""
+        try:
+            result = await self.process_message(message, history)
+            # 模拟流式输出
+            content = result["content"]
+            for i in range(0, len(content), 10):
+                chunk = content[i:i+10]
+                yield {
+                    "content": chunk,
+                    "is_final": i+10 >= len(content),
+                    "tool_calls": result["tool_calls"] if i+10 >= len(content) else None
+                }
+                
+        except Exception as e:
+            logger.error(f"流式处理失败: {e}")
+            yield {"content": f"错误: {str(e)}", "is_final": True, "tool_calls": None}
+
+# 创建全局Agent实例
+agent_service = ResearchAgentService()
+
+文件 8: backend\app\services\chat.py
+----------------------------------------
+from typing import List, Optional, Dict, Any
+from sqlalchemy.orm import Session
+from datetime import datetime
+import uuid
+
+from app.models.chat import ChatSession, ChatMessage
+from app.schemas.chat import SessionCreate, MessageCreate, ChatRequest
+from app.services.agent import agent_service
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+class ChatService:
+    """聊天服务"""
+    
+    def __init__(self, db: Session):
+        self.db = db
+    
+    def create_session(self, session_data: SessionCreate) -> ChatSession:
+        """创建新的聊天会话"""
+        session_id = str(uuid.uuid4())
+        
+        db_session = ChatSession(
+            session_id=session_id,
+            title=session_data.title
+        )
+        
+        self.db.add(db_session)
+        self.db.commit()
+        self.db.refresh(db_session)
+        
+        return db_session
+    
+    def get_session(self, session_id: str) -> Optional[ChatSession]:
+        """获取聊天会话"""
+        return self.db.query(ChatSession).filter(
+            ChatSession.session_id == session_id,
+            ChatSession.is_active == True
+        ).first()
+    
+    def get_all_sessions(self) -> List[ChatSession]:
+        """获取所有聊天会话"""
+        return self.db.query(ChatSession).filter(
+            ChatSession.is_active == True
+        ).order_by(ChatSession.updated_at.desc()).all()
+    
+    def delete_session(self, session_id: str) -> bool:
+        """删除聊天会话"""
+        session = self.get_session(session_id)
+        if session:
+            session.is_active = False
+            self.db.commit()
+            return True
+        return False
+    
+    def create_message(self, message_data: MessageCreate) -> ChatMessage:
+        """创建消息"""
+        # 确保会话存在
+        session = self.get_session(message_data.session_id)
+        if not session:
+            # 创建新会话
+            session = self.create_session(SessionCreate(title="新对话"))
+        
+        db_message = ChatMessage(
+            session_id=message_data.session_id,
+            role=message_data.role,
+            content=message_data.content,
+            tool_calls=message_data.tool_calls,
+            tool_results=message_data.tool_results
+        )
+        
+        self.db.add(db_message)
+        
+        # 更新会话时间
+        session.updated_at = datetime.now()
+        self.db.commit()
+        self.db.refresh(db_message)
+        
+        return db_message
+    
+    def get_messages(self, session_id: str, limit: int = 50) -> List[ChatMessage]:
+        """获取会话消息"""
+        return self.db.query(ChatMessage).filter(
+            ChatMessage.session_id == session_id
+        ).order_by(ChatMessage.created_at.asc()).limit(limit).all()
+    
+    async def process_chat(self, chat_request: ChatRequest) -> Dict[str, Any]:
+        """处理聊天请求"""
+        session_id = chat_request.session_id
+        
+        # 如果没有session_id，创建新会话
+        if not session_id:
+            session = self.create_session(SessionCreate(title=chat_request.message[:50]))
+            session_id = session.session_id
+        
+        # 获取历史消息
+        history_messages = self.get_messages(session_id)
+        history = []
+        for msg in history_messages:
+            history.append({
+                "role": msg.role,
+                "content": msg.content,
+                "tool_calls": msg.tool_calls,
+                "tool_results": msg.tool_results
+            })
+        
+        # 保存用户消息
+        user_message = self.create_message(MessageCreate(
+            session_id=session_id,
+            role="user",
+            content=chat_request.message
+        ))
+        
+        # 使用Agent处理消息
+        agent_response = await agent_service.process_message(
+            chat_request.message, 
+            history
+        )
+        
+        # 保存Assistant消息
+        assistant_message = self.create_message(MessageCreate(
+            session_id=session_id,
+            role="assistant",
+            content=agent_response["content"],
+            tool_calls=agent_response["tool_calls"],
+            tool_results=agent_response["tool_results"]
+        ))
+        
+        return {
+            "session_id": session_id,
+            "message": assistant_message,
+            "is_complete": True
+        }
+    
+    async def process_stream_chat(self, chat_request: ChatRequest):
+        """流式处理聊天请求"""
+        logger.info("Processing stream chat request")
+        session_id = chat_request.session_id
+        
+        # 如果没有session_id，创建新会话
+        if not session_id:
+            session = self.create_session(SessionCreate(title=chat_request.message[:50]))
+            session_id = session.session_id
+        
+        # 保存用户消息
+        user_message = self.create_message(MessageCreate(
+            session_id=session_id,
+            role="user",
+            content=chat_request.message
+        ))
+        
+        # 获取历史消息
+        history_messages = self.get_messages(session_id)
+        history = []
+        for msg in history_messages[:-1]:  # 排除刚添加的用户消息
+            history.append({
+                "role": msg.role,
+                "content": msg.content,
+                "tool_calls": msg.tool_calls,
+                "tool_results": msg.tool_results
+            })
+        
+        # 流式处理
+        full_content = ""
+        tool_calls = None
+        
+        async for chunk in agent_service.process_stream(
+            chat_request.message, 
+            history
+        ):
+            full_content += chunk["content"]
+            if chunk.get("tool_calls"):
+                tool_calls = chunk["tool_calls"]
+            
+            yield {
+                "content": chunk["content"],
+                "is_final": chunk["is_final"],
+                "tool_calls": tool_calls if chunk["is_final"] else None
+            }
+        
+        # 保存完整的Assistant消息
+        if full_content:
+            self.create_message(MessageCreate(
+                session_id=session_id,
+                role="assistant",
+                content=full_content,
+                tool_calls=tool_calls
+            ))
+============================================================
+共找到 8 个.py文件

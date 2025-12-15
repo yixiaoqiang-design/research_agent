@@ -10,8 +10,7 @@ export interface ChatRequest {
 }
 
 export interface ChatSession {
-  id: number;
-  session_id: string;
+  id: string;  // 改为 string 类型
   title: string;
   created_at: string;
   updated_at: string;
@@ -20,7 +19,7 @@ export interface ChatSession {
 }
 
 export interface ChatMessage {
-  id?: number;
+  id?: string;  // 改为 string 类型
   session_id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
@@ -56,7 +55,7 @@ class ApiClient {
    * @param title 会话标题
    * @returns 会话信息
    */
-  async createSession(title: string = '新对话'): Promise<any> {
+  async createSession(title: string = '新对话'): Promise<ChatSession> {
     const response = await this.client.post('/api/chat/sessions', { title });
     return response.data;
   }
@@ -65,7 +64,7 @@ class ApiClient {
    * 获取所有聊天会话
    * @returns 会话列表
    */
-  async getSessions(): Promise<any> {
+  async getSessions(): Promise<ChatSession[]> {
     const response = await this.client.get('/api/chat/sessions');
     return response.data;
   }
@@ -75,7 +74,7 @@ class ApiClient {
    * @param sessionId 会话ID
    * @returns 会话信息
    */
-  async getSession(sessionId: string): Promise<any> {
+  async getSession(sessionId: string): Promise<ChatSession> {
     const response = await this.client.get(`/api/chat/sessions/${sessionId}`);
     return response.data;
   }
@@ -93,7 +92,7 @@ class ApiClient {
    * @param sessionId 会话ID
    * @returns 消息列表
    */
-  async getSessionMessages(sessionId: string): Promise<any> {
+  async getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
     const response = await this.client.get(`/api/chat/sessions/${sessionId}/messages`);
     return response.data;
   }

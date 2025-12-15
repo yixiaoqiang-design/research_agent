@@ -1,7 +1,7 @@
 // src/types/chat.ts
 
 export interface ChatMessage {
-  id?: number;
+  id?: string;  // 改为 string 类型
   session_id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
@@ -23,8 +23,7 @@ export interface ToolResult {
 }
 
 export interface ChatSession {
-  id: number;
-  session_id: string;
+  id: string;  // 改为 string 类型
   title: string;
   created_at: string;
   updated_at: string;

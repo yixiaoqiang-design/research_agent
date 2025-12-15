@@ -19,10 +19,7 @@ class ChatService:
     
     def create_session(self, session_data: SessionCreate) -> ChatSession:
         """创建新的聊天会话"""
-        session_id = str(uuid.uuid4())
-        
         db_session = ChatSession(
-            session_id=session_id,
             title=session_data.title
         )
         
@@ -35,7 +32,7 @@ class ChatService:
     def get_session(self, session_id: str) -> Optional[ChatSession]:
         """获取聊天会话"""
         return self.db.query(ChatSession).filter(
-            ChatSession.session_id == session_id,
+            ChatSession.id == session_id,
             ChatSession.is_active == True
         ).first()
     
@@ -63,7 +60,7 @@ class ChatService:
             session = self.create_session(SessionCreate(title="新对话"))
         
         db_message = ChatMessage(
-            session_id=message_data.session_id,
+            session_id=session.id,  # 使用session.id而不是session_id字段
             role=message_data.role,
             content=message_data.content,
             tool_calls=message_data.tool_calls,
@@ -92,7 +89,7 @@ class ChatService:
         # 如果没有session_id，创建新会话
         if not session_id:
             session = self.create_session(SessionCreate(title=chat_request.message[:50]))
-            session_id = session.session_id
+            session_id = session.id  # 使用session.id
         
         # 获取历史消息
         history_messages = self.get_messages(session_id)
@@ -141,7 +138,7 @@ class ChatService:
         # 如果没有session_id，创建新会话
         if not session_id:
             session = self.create_session(SessionCreate(title=chat_request.message[:50]))
-            session_id = session.session_id
+            session_id = session.id  # 使用session.id
         
         # 保存用户消息
         user_message = self.create_message(MessageCreate(

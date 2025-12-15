@@ -3,9 +3,9 @@
     <el-scrollbar height="calc(100vh - 120px)">
       <div 
         v-for="session in sessions" 
-        :key="session.session_id"
-        :class="['session-item', { active: isActive(session.session_id) }]"
-        @click="handleSelectSession(session.session_id)"
+        :key="session.id"
+        :class="['session-item', { active: isActive(session.id) }]"
+        @click="handleSelectSession(session.id)"
       >
         <div class="session-content">
           <el-icon class="session-icon">
@@ -23,8 +23,8 @@
         
         <el-dropdown 
           trigger="click" 
-          @command="handleCommand($event, session.session_id)"
-          v-if="isActive(session.session_id)"
+          @command="handleCommand($event, session.id)"
+          v-if="isActive(session.id)"
         >
           <el-icon class="session-actions">
             <MoreFilled />
