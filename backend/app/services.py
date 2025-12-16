@@ -1,10 +1,12 @@
+# backend/app/services.py
 from typing import List, Dict, Any
 from langchain_deepseek import ChatDeepSeek
 from langchain.agents import create_agent
 from langchain_community.agent_toolkits.load_tools import load_tools
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from app.config import settings
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ class ResearchAgentService:
                 llm=llm
             )
             
-            # 4. 创建Agent
+            # 3. 创建Agent
             system_prompt = """你是一个专业的研究助手，专门帮助用户查找、理解和总结学术论文。
             你可以使用以下工具：
             1. arxiv - 在arXiv上搜索和获取学术论文
@@ -46,6 +48,11 @@ class ResearchAgentService:
             3. 提供论文的关键信息：标题、作者、摘要、关键贡献
             4. 如果用户要求，可以提供论文的详细总结
             5. 保持回答专业、准确、有用
+            
+            **重要提示**：
+            - 优先搜索最近2-3年的论文
+            - 使用具体的搜索词，避免过于宽泛的查询
+            - 最多搜索2-3次，避免过多API调用
             
             记住：始终用中文回答，除非用户特别要求使用其他语言。
             """
@@ -85,15 +92,49 @@ class ResearchAgentService:
                 "messages": messages
             })
             
-            # 提取最后一条消息
+            # 提取工具调用和结果信息
+            tool_calls = []
+            tool_results = {}
+            
             if result and 'messages' in result and result['messages']:
+                logger.info(f"Agent返回消息数量: {len(result['messages'])}")
+                
+                for i, m in enumerate(result['messages']):
+                    logger.debug(f"消息 {i}: {type(m).__name__}")
+                    
+                    # 提取工具调用（从AIMessage中）
+                    if isinstance(m, AIMessage):
+                        if hasattr(m, 'tool_calls') and m.tool_calls:
+                            logger.info(f"找到工具调用: {len(m.tool_calls)}个")
+                            for tool_call in m.tool_calls:
+                                tool_info = {
+                                    "name": tool_call.get('name', ''),
+                                    "args": tool_call.get('args', {}),
+                                    "id": tool_call.get('id', '')
+                                }
+                                tool_calls.append(tool_info)
+                                logger.info(f"工具调用: {tool_info['name']} - {tool_info['args']}")
+                    
+                    # 提取工具结果（从ToolMessage中）
+                    elif isinstance(m, ToolMessage):
+                        tool_results[m.tool_call_id] = m.content
+                        logger.info(f"工具结果: {m.tool_call_id} - {len(m.content)}字符")
+                
+                # 获取最后一条消息内容
                 last_message = result['messages'][-1]
+                content = last_message.content if hasattr(last_message, 'content') else ""
+                
+                logger.info(f"最终内容长度: {len(content)}字符")
+                logger.info(f"工具调用数量: {len(tool_calls)}")
+                logger.info(f"工具结果数量: {len(tool_results)}")
+                
                 return {
-                    "content": last_message.content,
-                    "tool_calls": getattr(last_message, 'tool_calls', None),
-                    "tool_results": getattr(last_message, 'tool_results', None)
+                    "content": content,
+                    "tool_calls": tool_calls if tool_calls else None,
+                    "tool_results": tool_results if tool_results else None
                 }
             else:
+                logger.warning("Agent未返回有效消息")
                 return {"content": "抱歉，我没有收到回复。", "tool_calls": None, "tool_results": None}
                 
         except Exception as e:

@@ -1,3 +1,4 @@
+# backend/app/api.py
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -106,7 +107,7 @@ async def send_message(
             "tool_calls": msg.tool_calls,
             "tool_results": msg.tool_results
         })
-    logger.info(f"历史消息数量: {len(history)}")
+    logger.info(f"本会话历史消息数量: {len(history)}")
     
     # 保存用户消息
     logger.info("保存用户消息到数据库")

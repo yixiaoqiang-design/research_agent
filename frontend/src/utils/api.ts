@@ -42,7 +42,7 @@ export interface StreamConnection {
 class ApiClient {
   private client = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 30000,
+    timeout: 300000,
     headers: {
       'Content-Type': 'application/json',
     },
