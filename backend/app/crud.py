@@ -1,7 +1,6 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from datetime import datetime
-import uuid
 
 from app.models import ChatSession, ChatMessage
 from app.schemas import SessionCreate, MessageCreate

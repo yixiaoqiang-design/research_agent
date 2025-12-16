@@ -4,11 +4,11 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.database import get_db
-from app import crud  # 直接导入函数
+from app import crud 
 from app.schemas import (
     SessionCreate, SessionResponse, ChatRequest, 
-    ChatResponse, ChatStreamChunk, MessageResponse,
-    MessageCreate  # 添加 MessageCreate 导入
+    ChatResponse, MessageResponse,
+    MessageCreate
 )
 from app.services import agent_service
 import json
@@ -82,14 +82,19 @@ async def send_message(
     db: Session = Depends(get_db)
 ):
     """发送消息（非流式）"""
+    print ()
+    print ('*'*80)
+    logger.info("api.py - send_message")
+    logger.info("用户发送非流式消息")
+    logger.info(f"ChatRequest: {chat_request}")
     if chat_request.stream:
         raise HTTPException(status_code=400, detail="Use /stream endpoint for streaming")
     
     # 如果没有session_id，创建新会话
     session_id = chat_request.session_id
+    # 如果没有session_id，则抛出异常
     if not session_id:
-        session = crud.create_session(db, SessionCreate(title=chat_request.message[:50]))
-        session_id = session.id
+        raise HTTPException(status_code=400, detail="session_id不能为空")
     
     # 获取历史消息
     history_messages = crud.get_messages(db, session_id)
@@ -101,8 +106,10 @@ async def send_message(
             "tool_calls": msg.tool_calls,
             "tool_results": msg.tool_results
         })
+    logger.info(f"历史消息数量: {len(history)}")
     
     # 保存用户消息
+    logger.info("保存用户消息到数据库")
     user_message = crud.create_message(db, MessageCreate(
         session_id=session_id,
         role="user",
@@ -110,12 +117,14 @@ async def send_message(
     ))
     
     # 使用Agent处理消息
+    logger.info("调用Agent处理消息")
     agent_response = await agent_service.process_message(
         chat_request.message, 
         history
     )
     
     # 保存Assistant消息
+    logger.info("保存Assistant消息到数据库")
     assistant_message = crud.create_message(db, MessageCreate(
         session_id=session_id,
         role="assistant",
@@ -123,7 +132,7 @@ async def send_message(
         tool_calls=agent_response["tool_calls"],
         tool_results=agent_response["tool_results"]
     ))
-    
+    logger.info("Assistant消息保存完成")
     return ChatResponse(
         session_id=session_id,
         message=assistant_message,

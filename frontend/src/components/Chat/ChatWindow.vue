@@ -101,7 +101,7 @@
       <div class="input-tips">
         <small>
           <el-icon><InfoFilled /></el-icon>
-          我可以帮你：搜索arXiv论文、查询维基百科、查找PubMed文献等
+          我可以帮你：搜索arXiv论文查找文献等，相关内容由 AI 生成，仅供参考。
         </small>
       </div>
     </div>
