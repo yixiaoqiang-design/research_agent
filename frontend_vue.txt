@@ -18,13 +18,8 @@ import { useChatStore } from '@/stores/chat';
 const chatStore = useChatStore();
 
 onMounted(async () => {
-  // 加载会话列表
-  await chatStore.loadSessions();
-  
-  // 如果没有会话，创建默认会话
-  if (!chatStore.hasSessions) {
-    await chatStore.createSession('欢迎使用研究助手');
-  }
+  // 初始化聊天store
+  await chatStore.init();
 });
 </script>
 
@@ -48,6 +43,7 @@ body {
 }
 </style>
 
+
 文件 2: frontend\src\components\Chat\ChatWindow.vue
 ----------------------------------------
 <template>
@@ -70,7 +66,7 @@ body {
         <div v-if="isStreaming && streamContent" class="message-wrapper">
           <MessageBubble 
             :message="{
-              session_id: currentSessionId,
+              session_id: currentSessionId || 'temp',
               role: 'assistant',
               content: streamContent,
               created_at: new Date().toISOString(),
@@ -121,7 +117,7 @@ body {
               <el-button 
                 :icon="Delete" 
                 @click="handleClear"
-                :disabled="!hasMessages"
+                :disabled="!hasMessages || !currentSessionId"
               />
             </el-tooltip>
             
@@ -139,7 +135,7 @@ body {
             type="primary" 
             @click="handleSend"
             :loading="isLoading"
-            :disabled="!inputMessage.trim() || isStreaming"
+            :disabled="!inputMessage.trim() || isStreaming || !currentSessionId"
             round
           >
             <template #icon>
@@ -200,7 +196,7 @@ const sendQuickQuestion = (question: string) => {
 };
 
 const handleSend = async () => {
-  if (!inputMessage.value.trim() || isLoading.value || isStreaming.value) {
+  if (!inputMessage.value.trim() || isLoading.value || isStreaming.value || !currentSessionId.value) {
     return;
   }
   
@@ -234,6 +230,7 @@ watch([messages, streamContent], () => {
 </script>
 
 <style scoped>
+/* 样式保持不变 */
 .chat-window {
   height: 100%;
   display: flex;
@@ -324,6 +321,7 @@ watch([messages, streamContent], () => {
   margin-right: 4px;
 }
 </style>
+
 
 文件 3: frontend\src\components\Chat\MessageBubble.vue
 ----------------------------------------
@@ -602,9 +600,9 @@ const formattedContent = computed(() => {
     <el-scrollbar height="calc(100vh - 120px)">
       <div 
         v-for="session in sessions" 
-        :key="session.session_id"
-        :class="['session-item', { active: isActive(session.session_id) }]"
-        @click="handleSelectSession(session.session_id)"
+        :key="session.id"
+        :class="['session-item', { active: isActive(session.id) }]"
+        @click="handleSelectSession(session.id)"
       >
         <div class="session-content">
           <el-icon class="session-icon">
@@ -622,8 +620,8 @@ const formattedContent = computed(() => {
         
         <el-dropdown 
           trigger="click" 
-          @command="handleCommand($event, session.session_id)"
-          v-if="isActive(session.session_id)"
+          @command="handleCommand($event, session.id)"
+          v-if="isActive(session.id)"
         >
           <el-icon class="session-actions">
             <MoreFilled />
@@ -863,7 +861,12 @@ const handleCommand = async (command: string, sessionId: string) => {
         </el-header>
         
         <el-main class="main-content">
-          <slot />
+          <slot v-if="currentSession" />
+          <div v-else class="no-session">
+            <el-empty description="请选择一个对话或创建新对话">
+              <el-button type="primary" @click="handleNewSession">创建新对话</el-button>
+            </el-empty>
+          </div>
         </el-main>
       </el-container>
     </el-container>
@@ -934,7 +937,15 @@ const handleNewSession = async () => {
   padding: 0;
   background-color: #f8f9fa;
 }
+
+.no-session {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
+
 
 文件 6: frontend\src\views\ChatView.vue
 ----------------------------------------

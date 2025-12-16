@@ -21,5 +21,5 @@ def get_db():
 
 # 创建所有表
 def create_tables():
-    from app.models.chat import Base
+    from app.models import Base
     Base.metadata.create_all(bind=engine)

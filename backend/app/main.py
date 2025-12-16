@@ -5,7 +5,7 @@ import uvicorn
 
 from app.config import settings
 from app.database import create_tables
-from app.api.chat import router as chat_router
+from app.api import router as chat_router
 import logging
 
 # 配置日志
